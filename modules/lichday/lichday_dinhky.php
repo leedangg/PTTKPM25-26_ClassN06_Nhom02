@@ -1,5 +1,6 @@
 <?php
 session_start();
+// Đảm bảo các file cấu hình và header tồn tại
 require_once '../../config/database.php';
 require_once '../header.php';
 
@@ -35,12 +36,12 @@ if ($firstKhoa) {
 $current_date = date('Y-m-d');
 // Lấy danh sách học kỳ cho dropdown - Chỉ lấy học kỳ đang diễn ra
 $hockys = $conn->query("SELECT * FROM hoc_ky 
-                        WHERE trang_thai = 'Đang diễn ra'
-                        OR (
-                            CURRENT_DATE BETWEEN ngay_bat_dau AND ngay_ket_thuc
-                            AND trang_thai != 'Đã kết thúc'
-                        )
-                        ORDER BY nam_hoc DESC, ngay_bat_dau DESC")->fetchAll();
+                         WHERE trang_thai = 'Đang diễn ra'
+                         OR (
+                             CURRENT_DATE BETWEEN ngay_bat_dau AND ngay_ket_thuc
+                             AND trang_thai != 'Đã kết thúc'
+                         )
+                         ORDER BY nam_hoc DESC, ngay_bat_dau DESC")->fetchAll();
 
 $current_hk = null;
 foreach ($hockys as $hk) {
@@ -53,19 +54,20 @@ foreach ($hockys as $hk) {
 
 function taoMaLichDK($conn)
 {
-    $sql = "SELECT CONCAT('LD', LPAD(COALESCE(MAX(CAST(SUBSTRING_INDEX(SUBSTRING(ma_lich, 1, 6), 'LD', -1) AS UNSIGNED)) + 1, 1), 4, '0')) as ma_lich 
-            FROM lich_day 
-            WHERE ma_lich LIKE 'LD%'";
+    // Cải tiến hàm này để đảm bảo mã duy nhất
+    $sql = "SELECT COALESCE(MAX(CAST(SUBSTRING(ma_lich, 3, 4) AS UNSIGNED)), 0) as max_num FROM lich_day WHERE ma_lich LIKE 'LD%'";
     $result = $conn->query($sql)->fetch();
-    return $result['ma_lich'];
+    $next_num = $result['max_num'] + 1;
+    return 'LD' . str_pad($next_num, 4, '0', STR_PAD_LEFT);
 }
 
 function taoMaLich($conn)
 {
-    $sql = "SELECT CONCAT('L', LPAD(COALESCE(MAX(CAST(SUBSTRING_INDEX(SUBSTRING(ma_lich, 1, 9), 'L', -1) AS UNSIGNED)) + 1, 1), 8, '0')) as ma_lich 
-            FROM lich_day";
+    // Cải tiến hàm này để đảm bảo mã duy nhất cho từng buổi cụ thể
+    $sql = "SELECT COALESCE(MAX(CAST(SUBSTRING(ma_lich, 2, 8) AS UNSIGNED)), 0) as max_num FROM lich_day WHERE ma_lich LIKE 'L%'";
     $result = $conn->query($sql)->fetch();
-    return $result['ma_lich'];
+    $next_num = $result['max_num'] + 1;
+    return 'L' . str_pad($next_num, 8, '0', STR_PAD_LEFT);
 }
 
 function tinhHeSoLop($soSV)
@@ -95,7 +97,7 @@ function tinhHeSoLop($soSV)
     return 0.7 + (floor(($soSV - 120) / 10) * 0.1);
 }
 
-// Logic xử lý POST request (giữ nguyên logic gốc)
+// Logic xử lý POST request (đã giữ nguyên logic gốc)
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         // Kiểm tra quyền thêm lịch
@@ -126,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $count == 0 ||
             $count != count($_POST['tiet_bat_dau']) ||
             $count != count($_POST['so_tiet']) ||
-            !isset($_POST['phong_hoc']) || trim($_POST['phong_hoc']) === '' // Kiểm tra trường đơn phòng học
+            !isset($_POST['phong_hoc']) || trim($_POST['phong_hoc']) === '' 
         ) {
             throw new Exception("Vui lòng điền đầy đủ thông tin cho tất cả các buổi!");
         }
@@ -168,33 +170,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 
         for ($i = 0; $i < $count; $i++) {
-            $ma_lich_dk = $base_ma_lich_dk . '_' . ($i + 1); // Unique ID for each iteration
             $thu = (int) $_POST['thu_trong_tuan'][$i];
             $tiet_bat_dau = (int) $_POST['tiet_bat_dau'][$i];
             $so_tiet = (int) $_POST['so_tiet'][$i];
-
-            // 1. Insert/Update the 'Master' Schedule entry (ma_lich_goc)
-            // Note: The original code uses a repetitive INSERT. We'll simulate a 'master' entry first, 
-            // then iterate through dates.
-            $stmt = $conn->prepare("INSERT INTO lich_day 
-                (ma_lich, ma_gv, ma_mon, ma_hk, thu_trong_tuan, tiet_bat_dau, so_tiet, 
-                phong_hoc, so_buoi_tuan, so_sinh_vien, ngay_day, ten_lop_hoc, he_so_lop) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?)");
-
-            // The original logic was flawed by using a master schedule ID (LDxxxx_y) for an entry 
-            // that also contained CURRENT_DATE for ngay_day. Let's assume the first entry (i=0) 
-            // is the 'Master/Template' entry for simplicity of ID generation, though this is conceptually messy.
-            // A dedicated 'lich_day_template' table would be better.
-
-            // Use the first iteration (i=0) to insert the 'template' record if needed.
+            
+            // 1. Insert the 'Master/Template' Schedule entry (ma_lich_goc)
+            // Chỉ chạy 1 lần để tạo record template
             if ($i == 0) {
                 $ma_lich_template = $base_ma_lich_dk;
+                $stmt = $conn->prepare("INSERT INTO lich_day 
+                    (ma_lich, ma_gv, ma_mon, ma_hk, thu_trong_tuan, tiet_bat_dau, so_tiet, 
+                    phong_hoc, so_buoi_tuan, so_sinh_vien, ngay_day, ten_lop_hoc, he_so_lop) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"); 
                 $stmt->execute([
                     $ma_lich_template,
                     $ma_gv,
                     $ma_mon,
                     $ma_hk,
-                    $thu,
+                    $thu, // Lấy thông tin buổi đầu tiên làm đại diện cho template
                     $tiet_bat_dau,
                     $so_tiet,
                     $phong_hoc,
@@ -214,12 +207,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $start_date->modify('+1 day');
             }
 
-            $j = 1; // Counter for unique individual schedule IDs
             while ($start_date <= $end_date) {
-                $ma_lich = 'L' . str_pad($j, 8, '0', STR_PAD_LEFT); // Re-generate unique ID here or use a better function
-
-                // Let's use the provided taoMaLich function which relies on MAX(CAST(SUBSTRING...))
-                $ma_lich = taoMaLich($conn);
+                // Tận dụng hàm taoMaLich để có mã duy nhất
+                $ma_lich = taoMaLich($conn); 
 
                 $sql = "INSERT INTO lich_day 
                         (ma_lich, ma_gv, ma_mon, ma_hk, ngay_day, 
@@ -236,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $tiet_bat_dau,
                     $so_tiet,
                     $phong_hoc,
-                    $base_ma_lich_dk,
+                    $base_ma_lich_dk, // Dùng mã template đã tạo
                     $so_sinh_vien,
                     $ten_lop_hoc,
                     $he_so_lop
@@ -244,13 +234,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 // Move to the next week (7 days later)
                 $start_date->modify('+7 days');
-                $j++;
             }
         }
 
         // 3. Thêm hoặc cập nhật lớp học vào bảng lop_hoc
         // Mã lớp = tên lớp + mã môn (loại bỏ khoảng trắng, ký tự đặc biệt)
         $ma_lop = preg_replace('/[^A-Za-z0-9]/', '', $ten_lop_hoc) . $ma_mon;
+
+        $stmtCheckLop = $conn->prepare("SELECT COUNT(*) FROM lop_hoc WHERE ma_lop = ?");
+        $stmtCheckLop->execute([$ma_lop]);
+        
+        if ($stmtCheckLop->fetchColumn() > 0) {
+             throw new Exception("Lớp học với tên **" . htmlspecialchars($ten_lop_hoc) . "** đã tồn tại. Vui lòng chọn tên khác!");
+        }
 
         $stmtInsert = $conn->prepare("INSERT INTO lop_hoc (ma_lop, ten_lop, so_sinh_vien, ma_mon, ma_hk) VALUES (?, ?, ?, ?, ?)");
         $stmtInsert->execute([$ma_lop, $ten_lop_hoc, $so_sinh_vien, $ma_mon, $ma_hk]);
@@ -263,7 +259,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($conn->inTransaction()) {
             $conn->rollBack();
         }
-        // Kiểm tra lỗi trùng mã lớp
         if (
             ($e instanceof PDOException || $e instanceof Exception)
             && strpos($e->getMessage(), 'Duplicate entry') !== false
@@ -287,7 +282,7 @@ echo getHeader("Lập lịch dạy");
     }
     
     .container {
-        max-width: 1200px;
+        max-width: 1400px; /* Tăng max-width để form rộng rãi hơn */
     }
 
     /* Card Styling */
@@ -300,7 +295,7 @@ echo getHeader("Lập lịch dạy");
     }
 
     .card-header {
-        background: linear-gradient(90deg, #007bff 0%, #0056b3 100%); /* Blue Gradient */
+        background: linear-gradient(90deg, #013b79ff 0%, #0056b3 100%); /* Blue Gradient */
         color: white;
         padding: 1.25rem 1.5rem;
         font-size: 1.25rem;
@@ -316,7 +311,7 @@ echo getHeader("Lập lịch dạy");
     }
 
     .form-control:focus, .custom-select:focus {
-        border-color: #007bff;
+        border-color: #003977ff;
         box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
     }
 
@@ -328,39 +323,57 @@ echo getHeader("Lập lịch dạy");
         background-color: #fff;
         margin-bottom: 20px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        height: 100%; 
     }
     .section-box h6 {
-        color: #007bff;
+        color: #003771ff;
         font-weight: 600;
         margin-bottom: 1rem;
         border-bottom: 2px solid #e9ecef;
         padding-bottom: 0.5rem;
     }
+    
+    /* NEW STYLING FOR DAY SCHEDULE */
+    .schedule-column-divider {
+        border-left: 1px solid #e9ecef;
+        padding-left: 1.5rem; 
+    }
+    .schedule-column-divider.col-md-6 {
+        padding-right: 0.75rem; 
+        
+    }
 
     /* Buổi học box */
     .buoi-hoc-box {
-        border: 1px solid #1f4873ff; /* Primary border for emphasis */
+        border: 1px solid #b3d4ff; 
         border-radius: 10px;
         padding: 1rem;
-        background-color: #eaf3ff; /* Very light blue */
+        background-color: #f7fbff; /* Very light blue */
         margin-bottom: 1rem;
+        transition: box-shadow 0.3s, border-color 0.3s;
+    }
+    .buoi-hoc-box:hover {
+        border-color: #007bff;
+        box-shadow: 0 0 10px rgba(0, 123, 255, 0.1);
     }
     .buoi-hoc-box h6 {
         color: #0056b3;
         font-weight: 700;
         margin-bottom: 0.75rem;
-        border-bottom: 1px solid #b3d4ff;
+        border-bottom: 1px solid #e9ecef;
         padding-bottom: 0.25rem;
     }
 
     /* Coefficient Box */
     .coefficient-card {
+       
         background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%); /* Teal Gradient */
         color: white;
         border-radius: 10px;
         padding: 1.25rem;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         height: 100%;
+        margin-top: 15px;
     }
     .coefficient-card h6 {
         font-weight: 700;
@@ -378,6 +391,35 @@ echo getHeader("Lập lịch dạy");
         color: #ffc107; /* Yellow for total highlight */
     }
 
+    /* BỐ CỤC 2 CỘT CHÍNH 35%/65% */
+    .left-column {
+        flex: 0 0 40%; /* 35% chiều rộng */
+        max-width: 40%; 
+        padding-right: 15px; 
+    }
+    .right-column {
+        flex: 0 0 60%; /* 60% chiều rộng */
+        max-width: 60%;
+        padding-left: 15px;
+    }
+
+    /* Điều chỉnh trên màn hình nhỏ */
+    @media (max-width: 991.98px) {
+        .left-column, .right-column {
+            flex: 0 0 100%;
+            max-width: 100%;
+            padding-right: 15px;
+            padding-left: 15px;
+        }
+        .schedule-column-divider {
+             border-left: none;
+             padding-left: 0.75rem; /* Reset padding */
+        }
+        .schedule-column-divider.col-md-6 {
+             padding-right: 0.75rem;
+        }
+    }
+    
     /* Buttons */
     .btn-primary {
         background: linear-gradient(45deg, #28a745 0%, #1e7e34 100%); /* Green Gradient for Save */
@@ -392,6 +434,11 @@ echo getHeader("Lập lịch dạy");
     }
     .btn-secondary {
         border-radius: 8px;
+        transition: all 0.3s;
+    }
+    .btn-secondary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(108, 117, 125, 0.4);
     }
 </style>
 
@@ -410,133 +457,138 @@ echo getHeader("Lập lịch dạy");
 
         <div class="card-body">
             <form method="POST" class="needs-validation" novalidate>
-                <div class="section-box">
-                    <h6 class="text-primary"><i class="fas fa-info-circle"></i> Thông tin cơ bản</h6>
-                    <div class="form-row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-user"></i> Giáo viên <span class="text-danger">*</span></label>
-                                <select name="ma_gv" class="form-control custom-select" required>
-                                    <option value="">-- Chọn giáo viên --</option>
-                                    <?php foreach ($giaoviens as $gv): ?>
-                                            <option value="<?= $gv['ma_gv'] ?>" 
-                                                <?= (isset($_SESSION['ma_gv']) && $gv['ma_gv'] == $_SESSION['ma_gv']) ? 'selected' : '' ?>
-                                                data-heso="<?= $gv['he_so_gv'] ?? 1.0 ?>">
-                                                <?= htmlspecialchars($gv['ho_ten']) ?>
-                                            </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-building"></i> Khoa <span class="text-danger">*</span></label>
-                                <select name="ma_khoa" class="form-control custom-select" id="select-khoa" required>
-                                    <option value="">-- Chọn khoa --</option>
-                                    <?php foreach ($khoas as $khoa): ?>
-                                            <option value="<?= $khoa['ma_khoa'] ?>" <?= ($firstKhoa == $khoa['ma_khoa'] && !isset($_POST['ma_khoa'])) ? 'selected' : '' ?>>
-                                                <?= htmlspecialchars($khoa['ten_khoa']) ?>
-                                            </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-book"></i> Môn học <span class="text-danger">*</span></label>
-                                <select name="ma_mon" class="form-control custom-select" id="select-monhoc" required>
-                                    <option value="">-- Chọn môn học --</option>
-                                    <?php foreach ($monhocs as $mon): ?>
-                                            <option value="<?= $mon['ma_mon'] ?>" data-heso="<?= $mon['he_so'] ?? 1.0 ?>">
-                                                <?= htmlspecialchars($mon['ten_mon']) ?>
-                                            </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="section-box">
-                    <h6 class="text-primary"><i class="fas fa-users"></i> Thông tin Lớp học & Quy đổi</h6>
-                    <div class="form-row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-calendar"></i> Học kỳ <span class="text-danger">*</span></label>
-                                <select name="ma_hk" class="form-control custom-select" required>
-                                    <option value="">-- Chọn học kỳ --</option>
-                                    <?php foreach ($hockys as $hk): ?>
-                                            <option value="<?= $hk['ma_hk'] ?>" 
-                                                    <?= ($current_hk && $hk['ma_hk'] == $current_hk['ma_hk']) ? 'selected' : '' ?>>
-                                                <?= htmlspecialchars($hk['ten_hk']) ?> - <?= $hk['nam_hoc'] ?>
-                                            </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-graduation-cap"></i> Tên Lớp Học <span class="text-danger">*</span></label>
-                                <input type="text" name="ten_lop_hoc" id="ten_lop_hoc" class="form-control"
-                                       value="<?= htmlspecialchars($_POST['ten_lop_hoc'] ?? 'N01') ?>" required>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-users"></i> Số sinh viên <span class="text-danger">*</span></label>
-                                <input type="number" name="so_sinh_vien" id="so_sinh_vien" class="form-control"
-                                       value="<?= htmlspecialchars($_POST['so_sinh_vien'] ?? '40') ?>" min="1" required>
-                            </div>
-                        </div>
-                    </div>
+                <div class="row">
                     
-                    <div class="row mt-3">
-                        <div class="col-12">
-                            <div class="coefficient-card">
-                                <h6><i class="fas fa-chart-bar"></i> Hệ số Quy đổi Giờ chuẩn</h6>
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        Giáo viên: <span id="he_so_gv" class="value-display">1.0</span>
-                                    </div>
-                                    <div class="col-md-3">
-                                        Học phần: <span id="mon_hoc" class="value-display">1.0</span>
-                                    </div>
-                                    <div class="col-md-3">
-                                        Lớp (SV): <span id="he_so_lop" class="value-display">0.0</span>
-                                    </div>
-                                    <div class="col-md-3 text-right">
-                                        Tổng hệ số: <span id="total_coefficient" class="value-total">1.00</span>
+                    <div class="col-lg-5 left-column">
+                        
+                        <div class="section-box" style="height : 38%;">
+                            <h6 class="text-primary"><i class="fas fa-info-circle"></i> Thông tin cơ bản</h6>
+                            <div class="form-row">
+                                <div class="col-md-12">
+                                     <div class="form-group">
+                                        <label><i class="fas fa-user"></i> Giáo viên <span class="text-danger">*</span></label>
+                                        <select name="ma_gv" class="form-control custom-select" required>
+                                            <option value="">-- Chọn giáo viên --</option>
+                                            <?php foreach ($giaoviens as $gv): ?>
+                                                    <option value="<?= $gv['ma_gv'] ?>" 
+                                                        <?= (isset($_SESSION['ma_gv']) && $gv['ma_gv'] == $_SESSION['ma_gv']) ? 'selected' : '' ?>
+                                                        data-heso="<?= $gv['he_so_gv'] ?? 1.0 ?>">
+                                                        <?= htmlspecialchars($gv['ho_ten']) ?>
+                                                    </option>
+                                            <?php endforeach; ?>
+                                        </select>
                                     </div>
                                 </div>
-                               
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-building"></i> Khoa <span class="text-danger">*</span></label>
+                                        <select name="ma_khoa" class="form-control custom-select" id="select-khoa" required>
+                                            <option value="">-- Chọn khoa --</option>
+                                            <?php foreach ($khoas as $khoa): ?>
+                                                    <option value="<?= $khoa['ma_khoa'] ?>" <?= ($firstKhoa == $khoa['ma_khoa'] && !isset($_POST['ma_khoa'])) ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($khoa['ten_khoa']) ?>
+                                                    </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group mb-0">
+                                        <label><i class="fas fa-book"></i> Môn học <span class="text-danger">*</span></label>
+                                        <select name="ma_mon" class="form-control custom-select" id="select-monhoc" required>
+                                            <option value="">-- Chọn môn học --</option>
+                                            <?php foreach ($monhocs as $mon): ?>
+                                                    <option value="<?= $mon['ma_mon'] ?>" data-heso="<?= $mon['he_so'] ?? 1.0 ?>">
+                                                        <?= htmlspecialchars($mon['ten_mon']) ?>
+                                                    </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <div class="section-box">
-                    <h6 class="text-primary"><i class="fas fa-calendar-check"></i> Chi tiết Lịch Dạy</h6>
-                    <div class="form-row">
-                         <div class="col-md-4">
-                            <div class="form-group">
-                                <label><i class="fas fa-calendar-day"></i> Số buổi/tuần <span class="text-danger">*</span></label>
-                                <input type="number" name="so_buoi_tuan" class="form-control" min="1" max="6" value="1"
-                                    id="so_buoi_tuan" onchange="taoThuTrongTuan(this.value)" required>
+                        <div class="section-box" style="height : 60%;">
+                            <h6 class="text-primary"><i class="fas fa-users"></i> Thông tin Lớp học & Quy đổi</h6>
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-users"></i> Số sinh viên <span class="text-danger">*</span></label>
+                                        <input type="number" name="so_sinh_vien" id="so_sinh_vien" class="form-control"
+                                                value="<?= htmlspecialchars($_POST['so_sinh_vien'] ?? '40') ?>" min="1" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-graduation-cap"></i> Tên Lớp Học <span class="text-danger">*</span></label>
+                                        <input type="text" name="ten_lop_hoc" id="ten_lop_hoc" class="form-control"
+                                                value="<?= htmlspecialchars($_POST['ten_lop_hoc'] ?? 'N01') ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-12">
+                                    <div class="form-group mb-0">
+                                        
+                                                <label><i class="fas fa-calendar"></i> Học kỳ <span class="text-danger">*</span></label>
+                                        <select name="ma_hk" class="form-control custom-select" required>
+                                            <option value="">-- Chọn học kỳ --</option>
+                                            <?php foreach ($hockys as $hk): ?>
+                                                    <option value="<?= $hk['ma_hk'] ?>" 
+                                                        <?= ($current_hk && $hk['ma_hk'] == $current_hk['ma_hk']) ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($hk['ten_hk']) ?> - <?= $hk['nam_hoc'] ?>
+                                                    </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="coefficient-card" style="height : 40%;">
+                                <h6><i class="fas fa-chart-bar" style="color: #00346cff; "></i> Hệ số Quy đổi Giờ chuẩn</h6>
+                                <div class="row">
+                                    <div class="col-6">
+                                        Hệ số GV: <span id="he_so_gv" class="value-display">1.0</span>
+                                    </div>
+                                    <div class="col-6">
+                                        Hệ số HP: <span id="mon_hoc" class="value-display">1.0</span>
+                                    </div>
+                                    <div class="col-6 mt-2">
+                                        Hệ số Lớp: <span id="he_so_lop" class="value-display">0.0</span>
+                                    </div>
+                                    <div class="col-6 text-right mt-2">
+                                        Tổng HS: <span id="total_coefficient" class="value-total">1.00</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                             <div class="form-group">
-                                <label><i class="fas fa-door-open"></i> Phòng học chung <span class="text-danger">*</span></label>
-                                <input type="text" name="phong_hoc" class="form-control" 
-                                       value="<?= htmlspecialchars($_POST['phong_hoc'] ?? '') ?>" required>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            </div>
+
                     </div>
                     
-                    <div class="row" id="thu_trong_tuan_container">
+                    <div class="col-lg-7 right-column">
+                        <div class="section-box">
+                            <h6 class="text-primary"><i class="fas fa-calendar-check"></i> Chi tiết Lịch Dạy</h6>
+                            <div class="form-row mb-3 align-items-end">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-calendar-day"></i> Số buổi/tuần <span class="text-danger">*</span></label>
+                                        <input type="number" name="so_buoi_tuan" class="form-control" min="1" max="6" value="1"
+                                            id="so_buoi_tuan" onchange="taoThuTrongTuan(this.value)" required>
+                                        <div class="invalid-feedback">Số buổi phải từ 1 đến 6.</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label><i class="fas fa-door-open"></i> Phòng học chung <span class="text-danger">*</span></label>
+                                        <input type="text" name="phong_hoc" class="form-control" 
+                                                value="<?= htmlspecialchars($_POST['phong_hoc'] ?? '') ?>" required>
+                                        <div class="invalid-feedback">Vui lòng nhập phòng học.</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row" id="thu_trong_tuan_container">
+                                </div>
                         </div>
+                    </div>
                 </div>
 
                 <div class="text-center mt-4">
@@ -592,7 +644,14 @@ echo getHeader("Lập lịch dạy");
 
         for (let i = 1; i <= soBuoiInt; i++) {
             const col = document.createElement('div');
-            col.className = 'col-md-6'; // Chia làm 2 cột
+            // Sử dụng col-md-6 để tạo 2 cột nhỏ bên trong CỘT PHẢI
+            col.className = 'col-md-6'; 
+            
+            // Áp dụng lớp CSS chia cột cho phần tử thứ hai, thứ tư, thứ sáu...
+            if (i % 2 === 0 && soBuoiInt > 1) {
+                 col.classList.add('schedule-column-divider');
+            }
+
             col.innerHTML = `
                 <div class="buoi-hoc-box">
                     <h6 class="mb-3">Buổi ${i}</h6>
@@ -614,12 +673,14 @@ echo getHeader("Lập lịch dạy");
                             <div class="form-group">
                                 <label><i class="fas fa-hourglass-start"></i> Tiết BD <span class="text-danger">*</span></label>
                                 <input type="number" name="tiet_bat_dau[]" class="form-control" min="1" max="15" value="1" required>
+                                <div class="invalid-feedback">Tiết bắt đầu phải từ 1 đến 15.</div>
                             </div>
                         </div>
                         <div class="col-md-12">
-                            <div class="form-group">
-                                <label><i class="fas fa-hourglass-end"></i> Số tiết <span class="text-danger">*</span></label>
+                            <div class="form-group mb-0">
+                                <label><i class="fas fa-clock"></i> Số tiết <span class="text-danger">*</span></label>
                                 <input type="number" name="so_tiet[]" class="form-control" min="1" max="6" value="3" required>
+                                <div class="invalid-feedback">Số tiết phải từ 1 đến 6.</div>
                             </div>
                         </div>
                     </div>
@@ -636,38 +697,48 @@ echo getHeader("Lập lịch dạy");
         select.innerHTML = '<option value="">-- Tải môn học... --</option>';
 
         if (maKhoa) {
-            // Sử dụng AJAX để tải môn học (giả sử bạn có file get_monhoc.php)
+            // Lưu ý: Cần có file `get_monhoc.php` để xử lý AJAX này
             fetch(`get_monhoc.php?ma_khoa=${maKhoa}`) 
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
                 .then(data => {
                     select.innerHTML = '<option value="">-- Chọn môn học --</option>';
                     data.forEach(mon => {
                         const option = document.createElement('option');
                         option.value = mon.ma_mon;
                         option.text = mon.ten_mon;
-                        // Lưu hệ số vào data-attribute
                         option.dataset.heso = mon.he_so || 1.0; 
                         select.add(option);
                     });
-                    // Cập nhật hệ số môn học nếu có môn được chọn
+                    
+                    // Cập nhật hệ số môn học nếu có môn được chọn (mặc định chọn cái đầu tiên)
                     if (data.length > 0) {
-                         document.getElementById('mon_hoc').textContent = data[0].he_so;
-                         updateTotalCoefficient();
+                        select.value = data[0].ma_mon; // Tự động chọn môn đầu tiên
+                        document.getElementById('mon_hoc').textContent = parseFloat(data[0].he_so || 1.0).toFixed(1);
                     } else {
                         document.getElementById('mon_hoc').textContent = '1.0';
-                        updateTotalCoefficient();
                     }
+                    updateTotalCoefficient();
                 })
-                .catch(error => console.error('Error loading subjects:', error));
+                .catch(error => {
+                    console.error('Error loading subjects:', error);
+                    select.innerHTML = '<option value="">-- Lỗi tải môn học --</option>';
+                    document.getElementById('mon_hoc').textContent = '1.0';
+                    updateTotalCoefficient();
+                });
         } else {
             select.innerHTML = '<option value="">-- Chọn môn học --</option>';
+            document.getElementById('mon_hoc').textContent = '1.0';
+            updateTotalCoefficient();
         }
     });
     
     // 3. Cập nhật hệ số khi thay đổi Giáo viên
     document.querySelector('select[name="ma_gv"]').addEventListener('change', function () {
         const selectedOption = this.options[this.selectedIndex];
-        const heSoGV = selectedOption.dataset.heso || 1.0;
+        const heSoGV = selectedOption ? (selectedOption.dataset.heso || 1.0) : 1.0;
         document.getElementById('he_so_gv').textContent = parseFloat(heSoGV).toFixed(1);
         updateTotalCoefficient();
     });
@@ -675,7 +746,7 @@ echo getHeader("Lập lịch dạy");
     // 4. Cập nhật hệ số khi thay đổi Môn học
     document.getElementById('select-monhoc').addEventListener('change', function () {
         const selectedOption = this.options[this.selectedIndex];
-        const heSoMon = selectedOption.dataset.heso || 1.0;
+        const heSoMon = selectedOption ? (selectedOption.dataset.heso || 1.0) : 1.0;
         document.getElementById('mon_hoc').textContent = parseFloat(heSoMon).toFixed(1);
         updateTotalCoefficient();
     });
@@ -691,26 +762,42 @@ echo getHeader("Lập lịch dạy");
     // 6. Khởi tạo
     document.addEventListener('DOMContentLoaded', function () {
         // Khởi tạo các buổi học (mặc định 1)
-        taoThuTrongTuan(document.getElementById('so_buoi_tuan').value); 
+        const soBuoiInput = document.getElementById('so_buoi_tuan');
+        taoThuTrongTuan(soBuoiInput.value); 
         
         // Khởi tạo hệ số GV
         const selectedGV = document.querySelector('select[name="ma_gv"]').selectedOptions[0];
         if (selectedGV) {
-            document.getElementById('he_so_gv').textContent = (selectedGV.dataset.heso || 1.0).toFixed(1);
+            document.getElementById('he_so_gv').textContent = parseFloat(selectedGV.dataset.heso || 1.0).toFixed(1);
         }
         
-        // Khởi tạo hệ số Lớp và Tổng
+        // Khởi tạo hệ số Lớp 
         const soSV = parseInt(document.getElementById('so_sinh_vien').value) || 40;
         document.getElementById('he_so_lop').textContent = tinhHeSoLop(soSV).toFixed(1);
         
-        // Khởi tạo hệ số Môn học (Cần kích hoạt load môn học ban đầu nếu có)
+        // Kích hoạt load môn học ban đầu để cập nhật hệ số môn và tổng
         const maKhoaInit = document.getElementById('select-khoa').value;
         if (maKhoaInit) {
-             document.getElementById('select-khoa').dispatchEvent(new Event('change'));
+              // Cần đợi 1 chút để DOM sẵn sàng cho AJAX
+              setTimeout(() => {
+                   document.getElementById('select-khoa').dispatchEvent(new Event('change'));
+              }, 100);
         }
         
-        // Khởi tạo tổng
+        // Cần gọi lại cập nhật tổng để đảm bảo tính đúng
         updateTotalCoefficient();
+        
+        // Bootstrap form validation
+        const forms = document.getElementsByClassName('needs-validation');
+        Array.prototype.forEach.call(forms, function (form) {
+            form.addEventListener('submit', function (e) {
+                if (!form.checkValidity()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                form.classList.add('was-validated');
+            }, false);
+        });
     });
 </script>
 
