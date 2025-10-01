@@ -2,15 +2,16 @@
 require_once '../../config/database.php';
 require_once '../header.php';
 
+// PHP logic: Kết nối DB, lấy dữ liệu, xử lý tìm kiếm (giữ nguyên, đã chuẩn)
 $database = new Database();
 $conn = $database->getConnection();
 
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $search_param = "%$search%";
 
-// Tự động xác định $root_path (Đường dẫn tương đối trực tiếp)
 $root_path = '../';
 
+// Lệnh SQL đã an toàn và hiệu quả
 $sql = "SELECT gv.*, k.ten_khoa, bc.ten_bangcap, u.username as tai_khoan, u.password as mat_khau
         FROM giaovien gv
         LEFT JOIN khoa k ON gv.ma_khoa = k.ma_khoa
@@ -37,145 +38,179 @@ echo getHeader("Quản lý giảng viên");
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="<?= $root_path ?>assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 
     <style>
+        /* ==================== BASE STYLES ==================== */
         body {
-            background-color: #f4f6f9;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f4f8;
+            /* Màu nền nhẹ nhàng hơn */
+            font-family: 'Inter', sans-serif;
         }
 
-        /* SỬA LỖI 1: Tăng độ rộng tối đa của container */
         .page-wrapper {
             padding: 30px 15px;
-            max-width: 1500px;
-            /* Tăng từ 1400px lên 1500px */
+            max-width: 1400px;
+            /* Giữ 1400px hoặc 1500px tùy ý, 1400px cân đối hơn */
             margin: 0 auto;
         }
 
+        /* ==================== CARD STYLES ==================== */
         .card {
-            border: none;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            border: 1px solid #e3e6f0;
+            border-radius: 18px;
+            /* Tăng border-radius cho cảm giác mềm mại */
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s, box-shadow 0.3s;
         }
 
         .card:hover {
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.15);
         }
 
         .card-header {
-            background: linear-gradient(135deg, #007bff, #0056b3);
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
             color: white;
-            border-radius: 15px 15px 0 0 !important;
-            padding: 1.5rem;
-            font-size: 1.5rem;
+            border-radius: 18px 18px 0 0 !important;
+            padding: 1.25rem 1.5rem;
+            /* Tối ưu padding */
+            font-size: 1.4rem;
             font-weight: 700;
             display: flex;
             align-items: center;
         }
 
+        /* ==================== SEARCH & ADD BUTTONS ==================== */
         .search-add-bar {
-            padding: 0 15px 15px 15px;
-            margin-bottom: 1rem;
+            padding: 20px 15px 15px;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+            /* Đường viền nhẹ */
         }
 
         .btn-success {
-            background: linear-gradient(45deg, #28a745, #157347);
+            background: linear-gradient(45deg, #28a745, #1e8738);
             border: none;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
-            transition: all 0.3s;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(40, 167, 69, 0.4);
         }
 
-        .btn-success:hover {
-            background: linear-gradient(45deg, #157347, #28a745);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4);
-        }
-
-        .form-inline .form-control {
-            border-radius: 8px;
-            border: 1px solid #ced4da;
-            transition: border-color 0.3s, box-shadow 0.3s;
-        }
-
-        .form-inline .btn-primary {
+        .btn-primary {
             background: #007bff;
             border: none;
             border-radius: 8px;
-            transition: background 0.3s;
         }
 
-        .form-inline .btn-primary:hover {
-            background: #0056b3;
-        }
-
-        /* Bảng dữ liệu */
+        /* ==================== TABLE STYLES ==================== */
         .table-responsive {
             border-radius: 10px;
-            overflow-x: auto;
-            /* Đảm bảo có thanh cuộn ngang nếu cần */
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
         }
 
-        .table {
-            margin-bottom: 0;
-            /* Đặt min-width cho bảng nếu cần, nhưng .table-responsive đã làm tốt việc này */
+        .thead-dark th {
+            background: linear-gradient(to right, #343a40, #495057);
+            color: #f8f9fa;
+            border-bottom: 4px solid #007bff;
+            /* Viền xanh nổi bật */
+            font-weight: 600;
+            text-align: left;
+            /* Căn trái cho header để dễ đọc hơn */
+            padding: 0.75rem 1rem;
         }
 
-        .thead-dark th {
-            background: linear-gradient(to right, #495057, #343a40);
-            color: #fff;
-            border-bottom: 3px solid #007bff;
+        .table tbody tr td {
             vertical-align: middle;
-            font-weight: 600;
-            text-align: center;
+            font-size: 0.9rem;
+            padding: 0.75rem 1rem;
+            color: #344767;
+        }
+
+        .table tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+            /* Zebra Striping */
         }
 
         .table tbody tr:hover {
-            background-color: #e9ecef;
-            transform: scale(1.005);
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-            transition: all 0.2s;
+            background-color: #eef1f5;
+            box-shadow: none;
+            /* Bỏ box-shadow khi hover để không bị lặp */
+            transform: none;
         }
 
+
+        /* ==================== CUSTOM COLUMNS ==================== */
+
+        /* Tối ưu hóa độ rộng các cột (Readability) */
+        .table th:nth-child(1),
+        .table td:nth-child(1) {
+            width: 80px;
+            text-align: center;
+        }
+
+        /* Mã GV */
+        .table th:nth-child(4),
+        .table td:nth-child(4) {
+            width: 120px;
+        }
+
+        /* SĐT */
+        .table th:nth-child(5),
+        .table td:nth-child(5) {
+            width: 150px;
+        }
+
+        /* Khoa */
+        .table th:nth-child(6),
+        .table td:nth-child(6) {
+            width: 150px;
+        }
+
+        /* Bằng cấp */
+        .action-column {
+            width: 120px;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        /* Mật khẩu (UX/UI Nâng cao) */
         .password-cell {
-            font-family: monospace;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             color: #dc3545;
             cursor: pointer;
+            text-align: center;
+            user-select: none;
+            width: 120px;
+            min-width: 120px;
         }
 
         .password-hidden {
             filter: blur(4px);
-            user-select: none;
+            opacity: 0.7;
+            transition: filter 0.3s, opacity 0.3s;
         }
 
-        /* SỬA LỖI 2: Tối ưu hóa cột Thao tác */
-        .action-column {
-            width: 150px;
-            /* Đảm bảo cột có độ rộng cố định */
-            min-width: 150px;
-            text-align: center;
+        .password-visible {
+            color: #007bff;
+            filter: none !important;
+            opacity: 1;
+            font-weight: 700;
+            text-decoration: underline;
+            text-decoration-color: #007bff50;
         }
 
+        /* Nút hành động */
         .btn-group .btn {
-            padding: 0.3rem 0.5rem;
-            /* Giảm padding để các nút sát nhau hơn */
-            font-size: 0.8rem;
-            /* Giảm cỡ chữ */
-            border-radius: 5px !important;
-            margin: 0 1px;
-            /* Giảm margin giữa các nút */
-            transition: transform 0.2s;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.85rem;
+            border-radius: 6px !important;
+            margin: 0 2px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-        .btn-group .btn:hover {
-            transform: translateY(-1px);
-        }
-
-        .table td {
-            vertical-align: middle;
-            font-size: 0.95rem;
+        /* Căn giữa tiêu đề cột thao tác */
+        .table th:last-child {
+            text-align: center;
         }
     </style>
 </head>
@@ -187,22 +222,27 @@ echo getHeader("Quản lý giảng viên");
                 <i class="fas fa-users-cog mr-3"></i> Danh sách Giảng viên
             </div>
 
-            <div class="card-body">
-                <div class="d-flex justify-content-between search-add-bar">
+            <div class="card-body p-0">
+                <div class="d-flex justify-content-between align-items-center search-add-bar">
                     <a href="them.php" class="btn btn-success">
-                        <i class="fas fa-plus"></i> Thêm giảng viên
+                        <i class="fas fa-plus mr-1"></i> Thêm giảng viên
                     </a>
                     <form class="form-inline" method="GET">
-                        <input type="text" name="search" class="form-control" placeholder="Tìm kiếm (Họ tên, Email)..."
-                            value="<?= htmlspecialchars($search ?? '', ENT_QUOTES, 'UTF-8') ?>">
-                        <button type="submit" class="btn btn-primary ml-2">
-                            <i class="fas fa-search"></i>
-                        </button>
-                        <?php if (!empty($search)): ?>
-                            <a href="index.php" class="btn btn-secondary ml-2" title="Xóa tìm kiếm">
-                                <i class="fas fa-times"></i>
-                            </a>
-                        <?php endif; ?>
+                        <div class="input-group">
+                            <input type="text" name="search" class="form-control"
+                                placeholder="Tìm kiếm (Họ tên, Email)..."
+                                value="<?= htmlspecialchars($search ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                            <div class="input-group-append">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i> Tìm
+                                </button>
+                                <?php if (!empty($search)): ?>
+                                    <a href="index.php" class="btn btn-secondary" title="Xóa tìm kiếm">
+                                        <i class="fas fa-times"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </form>
                 </div>
 
@@ -225,7 +265,8 @@ echo getHeader("Quản lý giảng viên");
                             <?php if (count($giaoviens) > 0): ?>
                                 <?php foreach ($giaoviens as $gv): ?>
                                     <tr>
-                                        <td><?= htmlspecialchars($gv['ma_gv'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
+                                        <td class="text-center"><?= htmlspecialchars($gv['ma_gv'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+                                        </td>
                                         <td><?= htmlspecialchars($gv['ho_ten'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
                                         <td><?= htmlspecialchars($gv['email'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
                                         <td><?= htmlspecialchars($gv['so_dien_thoai'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
@@ -237,7 +278,7 @@ echo getHeader("Quản lý giảng viên");
                                                 data-password="<?= htmlspecialchars($gv['mat_khau'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                                                 <?php
                                                 // Hiển thị một chuỗi sao/chấm đại diện
-                                                echo str_repeat('•', strlen($gv['mat_khau'] ?? ''));
+                                                echo str_repeat('•', 8); // Dùng số cố định (8) để tránh đoán độ dài
                                                 ?>
                                             </span>
                                         </td>
@@ -265,6 +306,10 @@ echo getHeader("Quản lý giảng viên");
                                     <td colspan="9" class="text-center text-muted p-4">
                                         <i class="fas fa-exclamation-circle mr-2"></i>Không tìm thấy giảng viên nào phù hợp
                                         với từ khóa: **<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>**
+                                        <?php if (!empty($search)): ?>
+                                            <div class="mt-2"><a href="index.php" class="text-primary font-weight-bold">Hiển thị
+                                                    tất cả giảng viên</a></div>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endif; ?>
@@ -283,20 +328,28 @@ echo getHeader("Quản lý giảng viên");
         $(document).ready(function () {
             $('.password-cell').on('click', function () {
                 var $span = $(this).find('.password-hidden');
-                var currentText = $span.text();
                 var actualPassword = $span.data('password');
+                var maskedText = '•'.repeat(8); // Mask cố định
 
                 if ($span.hasClass('password-hidden')) {
                     // Hiện mật khẩu
                     $span.text(actualPassword);
-                    $span.removeClass('password-hidden');
-                    $span.css({ 'filter': 'none', 'color': '#007bff' });
+                    $span.removeClass('password-hidden').addClass('password-visible');
                 } else {
                     // Ẩn mật khẩu
-                    var maskedText = '•'.repeat(actualPassword.length);
                     $span.text(maskedText);
-                    $span.addClass('password-hidden');
-                    $span.css({ 'filter': 'blur(4px)', 'color': '#dc3545' });
+                    $span.removeClass('password-visible').addClass('password-hidden');
+                }
+            });
+
+            // Khởi tạo trạng thái ban đầu cho tất cả ô mật khẩu
+            $('.password-cell').each(function () {
+                var $span = $(this).find('.password-hidden');
+                var actualPassword = $span.data('password');
+                if (actualPassword.length === 0) {
+                    $span.text('Không TK'); // Hiện thị rõ ràng nếu không có tài khoản
+                    $span.css({ 'filter': 'none', 'color': '#6c757d', 'cursor': 'default' });
+                    $(this).off('click'); // Vô hiệu hóa click
                 }
             });
         });
